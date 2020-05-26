@@ -3,7 +3,8 @@
 
 #include <variant>
 #include <iostream>
-#include <algorithm>
+#include <memory>
+#include <cstring>
 
 constexpr int topThreshold = 16;
 constexpr int bottomThreshold = 255;
@@ -48,6 +49,18 @@ class YHString {
         start = static_cast<char*>(std::malloc(rhs.capacity));
         std::memcpy(start, rhs.start, capacity);
       }
+      return *this;
+    }
+    // move functions, the same for others. 
+    EagerCopyImpl(EagerCopyImpl&& rhs) :
+      size(rhs.size),
+      capacity(rhs.capacity),
+      start(rhs.start) { rhs.start = nullptr; }
+    EagerCopyImpl& operator=(EagerCopyImpl&& rhs) {
+      size = rhs.size;
+      capacity = rhs.capacity;
+      start = rhs.start;
+      rhs.start = nullptr;
       return *this;
     }
     char* operator[](size_t index) {
@@ -95,7 +108,7 @@ class YHString {
     char buf[topThreshold];
   public:
     ShortStringOptImpl() = default;
-    ShortStringOptImpl(const char* str) : 
+    ShortStringOptImpl(const char* str) :
       size(std::strlen(str)) {
         std::memcpy(buf, str, size);
     }
@@ -163,6 +176,15 @@ class YHString {
       v = InnerImpls(rhs.v);  // re-copy-construct if they're different.
     } else {
       v = rhs.v; 
+    }
+    return *this;
+  }
+  YHString(YHString&& rhs) : v(rhs.v) {}
+  YHString& operator=(YHString&& rhs) {
+    if (v.index() != rhs.v.index()) {
+      v = InnerImpls(rhs.v);
+    } else {
+      v = rhs.v;  // rvalue;
     }
     return *this;
   }

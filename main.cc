@@ -57,5 +57,9 @@ int main(int argc, char **argv) {
   std::cout << strG.length() << std::endl;
   std::cout << (strG == strD) << std::endl;  // false;
   std::cout << (strG == strG) << std::endl;  // true;
+	
+  YHString strH(YHString("Hello, it's a godd day! Do you want some coffee?"));
+  std::cout << strH << std::endl;
   return 0;
 }
+
