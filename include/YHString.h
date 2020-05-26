@@ -166,9 +166,15 @@ class YHString {
     }
     return *this;
   }
-  const auto* data() const { return VISIT_COMMON_RET(const char*, arg.data()); }
-  char& operator[](size_t index) { return *VISIT_COMMON_RET(char*, arg[index], index); }
-  auto length() const { return VISIT_COMMON_RET(size_t, arg.length()); }
+  const auto* data() const { 
+    return VISIT_COMMON_RET(const char*, arg.data());
+  }
+  char& operator[](size_t index) {
+    return *VISIT_COMMON_RET(char*, arg[index], index);
+  }
+  auto length() const { 
+    return VISIT_COMMON_RET(size_t, arg.length());
+  }
 };
 
 // global helpers / overloadings.
