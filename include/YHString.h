@@ -1,7 +1,11 @@
-#include <iostream>
-#include <variant>
+#ifndef YHSTRING
+#define YHSTRING
 
-constexpr int topThreshold = 23;
+#include <variant>
+#include <iostream>
+#include <algorithm>
+
+constexpr int topThreshold = 16;
 constexpr int bottomThreshold = 255;
 constexpr const char* outOfRangeMsg = "The accessing index is out of range.";
 
@@ -28,7 +32,9 @@ class YHString {
       start(static_cast<char*>(std::malloc(size))) {
         std::memcpy(start, str, size);
     }
-    ~EagerCopyImpl() { if (start != nullptr) { std::free(start); } }
+    ~EagerCopyImpl() {
+      if (start != nullptr) { std::free(start); }
+    }
     EagerCopyImpl(const EagerCopyImpl& rhs) :
       size(rhs.size),
       capacity(rhs.capacity),
@@ -48,6 +54,8 @@ class YHString {
       if (index < size) { return start + index; }
       else { throw std::out_of_range(outOfRangeMsg); }
     }
+    auto length() const { return size; }
+    const auto* data() const { return start; }
   };
 
   struct CopyOnWriteImpl {
@@ -78,12 +86,13 @@ class YHString {
         return res->start + index; 
       } else { throw std::out_of_range(outOfRangeMsg); }
     }
+    auto length() const { return res->size; }
+    const auto* data() const { return res->start; }
   };
 
   struct ShortStringOptImpl {
-    const static size_t bufSize = 3 * sizeof(nullptr);
-    char buf[bufSize];
     size_t size;
+    char buf[topThreshold];
   public:
     ShortStringOptImpl() = default;
     ShortStringOptImpl(const char* str) : 
@@ -103,20 +112,35 @@ class YHString {
     }
     char* operator[](size_t index) {
       if (index < size) { return buf + index; }
-      else throw std::out_of_range(outOfRangeMsg);
+      else { throw std::out_of_range(outOfRangeMsg); }
     }
+    auto length() const { return size; }
+    const auto* data() const { return buf; }
   };
 
   InnerImpls v;
+  // a little bit ugly here, anyway :(
+  #define VISIT_COMMON_RET(retType, expr, ...) \
+    [=]() { \
+      retType _t; \
+      std::visit([&_t, this, ##__VA_ARGS__](auto&& arg) { \
+        using T = std::decay_t<decltype(arg)>; \
+        if constexpr (!std::is_same_v<T, decltype(std::monostate())>) { \
+          _t = expr; \
+        } \
+      }, v); \
+      return _t; \
+    }()
+    
   void echo(std::ostream& os) {
     std::visit([&os](auto&& arg) {
       using T = std::decay_t<decltype(arg)>;
       if constexpr (std::is_same_v<T, EagerCopyImpl>) {
-        os << arg.start;
+        os << arg.start; 
       } else if constexpr (std::is_same_v<T, CopyOnWriteImpl>) {
-        os << arg.res->start;
-      } else if constexpr (std::is_same_v<T, ShortStringOptImpl>) {
-        os << arg.buf;
+        os << arg.res->start; 
+      } else if constexpr (std::is_same_v<T, ShortStringOptImpl>) { 
+        os << arg.buf; 
       }
     }, v);
   }
@@ -124,33 +148,48 @@ class YHString {
   YHString() = default;
   YHString(const char* str) {
     const auto len = std::strlen(str);
+    // SSO should have dynamic capacity.
     if (len <= topThreshold) {
-      v = InnerImpls(std::in_place_type<ShortStringOptImpl>, str);
+      v = InnerImpls(std::in_place_type<ShortStringOptImpl>, str); 
     } else if (len <= bottomThreshold) {
-      v = InnerImpls(std::in_place_type<EagerCopyImpl>, str);
-    } else {
-      v = InnerImpls(std::in_place_type<CopyOnWriteImpl>, str);
+      v = InnerImpls(std::in_place_type<EagerCopyImpl>, str); 
+    } else { 
+      v = InnerImpls(std::in_place_type<CopyOnWriteImpl>, str); 
     }
   }
   YHString(const YHString& rhs) : v(rhs.v) {}
   YHString& operator=(const YHString& rhs) {
-    if (v.index() != rhs.v.index()) { v = InnerImpls(rhs.v); }  // re-copy-construct if they're different.
-    else { v = rhs.v; }
+    if (v.index() != rhs.v.index()) {
+      v = InnerImpls(rhs.v);  // re-copy-construct if they're different.
+    } else {
+      v = rhs.v; 
+    }
     return *this;
   }
-  char& operator[](size_t index) {
-    char* t = nullptr;
-    std::visit([&t ,index = index, this](auto&& arg) {
-      using T = std::decay_t<decltype(arg)>;
-      if constexpr (!std::is_same_v<T, decltype(std::monostate())>) {
-        t = arg[index];
-      }
-    }, v);
-    return *t;
-  }
+  const auto* data() const { return VISIT_COMMON_RET(const char*, arg.data()); }
+  char& operator[](size_t index) { return *VISIT_COMMON_RET(char*, arg[index], index); }
+  auto length() const { return VISIT_COMMON_RET(size_t, arg.length()); }
 };
 
-// global helper / overloading.
+// global helpers / overloadings.
+bool operator==(const YHString& lhs, const YHString& rhs) {
+  bool result = true;
+  if (&lhs != &rhs) {
+    if (const auto llen = lhs.length(); llen == rhs.length()) {
+      auto sx = lhs.data();
+      auto sy = rhs.data();
+      for (auto i = 0; i < llen; ++i) {
+        if (sx[i] != sy[i]) { 
+          result = false;
+          break;
+        }
+      }
+    } else {
+      result = false;
+    }
+  }
+  return result;
+}
 std::ostream& operator<<(std::ostream& os, YHString& rhs) { rhs.echo(os); return os; }
 bool isSharing(const YHString& lhs, const YHString& rhs) {
   bool result = false;
@@ -168,55 +207,4 @@ bool isSharing(const YHString& lhs, const YHString& rhs) {
   return result;
 }
 
-int main(int argc, char **argv) {
-  std::cout << std::boolalpha;
-  
-  // SSO: basic constructing, copy-constructing, and assignment.
-  YHString strA("Hello, world!"), strB(strA), strC;
-  strC = strA;
-  std::cout << strA << std::endl;
-  std::cout << strB << std::endl;
-  std::cout << strC << std::endl;
-
-  // COW: sharing dynamic memory; 
-  YHString strD(R"(
-    YHSPY YHSPY YHSPY YHSPY YHSPY YHSPY YHSPY YHSPY YHSPY YHSPY
-    YHSPY YHSPY YHSPY YHSPY YHSPY YHSPY YHSPY YHSPY YHSPY YHSPY 
-    YHSPY YHSPY YHSPY YHSPY YHSPY YHSPY YHSPY YHSPY YHSPY YHSPY
-    YHSPY YHSPY YHSPY YHSPY YHSPY YHSPY YHSPY YHSPY YHSPY YHSPY
-    YHSPY YHSPY YHSPY YHSPY YHSPY YHSPY YHSPY YHSPY YHSPY YHSPY
-  )");
-  YHString strE(strD);
-  std::cout << isSharing(strD, strE) << std::endl;  // true.
-  
-  // COW: sharing assignment.
-  strC = strD;
-  std::cout << strC << std::endl;
-  std::cout << isSharing(strC, strE) << std::endl;  // true.
-  
-  // COW: non-sharing assignment.
-  YHString strF(R"(
-    HELLO HELLO HELLO HELLO HELLO HELLO HELLO HELLO HELLO HELLO 
-    HELLO HELLO HELLO HELLO HELLO HELLO HELLO HELLO HELLO HELLO 
-    HELLO HELLO HELLO HELLO HELLO HELLO HELLO HELLO HELLO HELLO 
-    HELLO HELLO HELLO HELLO HELLO HELLO HELLO HELLO HELLO HELLO 
-    HELLO HELLO HELLO HELLO HELLO HELLO HELLO HELLO HELLO HELLO
-  )");
-
-  strC = strF;
-  std::cout << strC << std::endl;
-  std::cout << isSharing(strC, strE) << std::endl;  // false.
-  
-  // COW: non-sharing operator[].
-  strD[255] = 'c';
-  std::cout << strD << std::endl;
-  std::cout << isSharing(strD, strE) << std::endl;  // false.
-
-  // eager-copy: constructing.
-  YHString strG = "Hello, there are still many things to do.";
-  std::cout << strG << std::endl;
-
-  // eager-copy: out-of-bound exception thrown;
-  strG[225] = 'c';
-  return 0;
-}
+#endif
